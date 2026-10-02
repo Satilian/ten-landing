@@ -1,0 +1,41 @@
+name: Validate
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.17.3
+      - name: Validate chart
+        run: |
+          helm lint helm/ten-master --strict --set image.repository=example/site --set image.tag=test
+          helm template ten-master helm/ten-master --set image.repository=example/site --set image.tag=test > /tmp/manifests.yaml
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ten-master:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check container and SPA routes
+        run: |
+          set -euo pipefail
+          docker run -d --name site --read-only --tmpfs /tmp:uid=101,gid=101 -p 8080:8080 ten-master:test
+          trap 'docker logs site; docker rm -f site' EXIT
+          curl --retry 10 --retry-connrefused --retry-delay 1 --fail http://localhost:8080/healthz
+          curl --fail http://localhost:8080/ > /tmp/index.html
+          curl --fail http://localhost:8080/catalog > /tmp/route.html
+          cmp /tmp/index.html /tmp/route.html
+          curl --fail http://localhost:8080/robots.txt | grep -F 'Allow: /'
+          curl --fail http://localhost:8080/sitemap.xml | grep -F '<loc>https://xn----8sbp0adwfdf8h.xn--p1ai/</loc>'
+          grep -F '<main>' /tmp/index.html
+          if grep -qi 'noindex' /tmp/index.html; then exit 1; fi
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/assets/missing.js)" = 404

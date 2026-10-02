@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.github
+.env*
+*.log
+.agents
+.codex
+.aws
+.plugins
+.opencode-skills
+.figma/design-context
+helm
+docs

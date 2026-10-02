@@ -1,0 +1,24 @@
+replicaCount: 2
+image:
+  repository: "" # Required: ghcr.io/owner/repository
+  tag: "" # Required: commit SHA or immutable version
+  digest: "" # Optional; takes precedence over tag
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+service:
+  port: 80
+ingress:
+  enabled: true
+  className: "" # Set to the installed IngressClass
+  annotations: {}
+  host: xn----8sbp0adwfdf8h.xn--p1ai
+  tls:
+    enabled: true
+    secretName: ten-master-tls
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: 500m
+    memory: 128Mi

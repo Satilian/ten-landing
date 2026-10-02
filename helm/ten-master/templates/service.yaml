@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ten-master.name" . }}
+  labels:
+    {{- include "ten-master.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "ten-master.selectorLabels" . | nindent 4 }}
