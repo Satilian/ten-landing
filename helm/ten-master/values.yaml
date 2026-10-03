@@ -10,11 +10,14 @@ service:
 ingress:
   enabled: true
   className: traefik
-  annotations: {}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: myresolver
   host: xn----8sbp0adwfdf8h.xn--p1ai
   tls:
     enabled: true
-    secretName: ten-master-tls
+    secretName: "" # Traefik myresolver manages the certificate
 resources:
   requests:
     cpu: 50m

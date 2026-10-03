@@ -7,7 +7,7 @@
 1. Загрузите проект в GitHub. Workflows рассчитаны на ветку `main`; измените её при необходимости.
 2. Подготовьте Kubernetes и установленный Ingress controller. Узнайте имя его IngressClass. API Kubernetes должен быть доступен с GitHub runner; для закрытого кластера используйте собственный runner.
 3. Направьте DNS A-запись домена `тэн-мастер.рф` (`xn----8sbp0adwfdf8h.xn--p1ai`) на внешний IPv4 Ingress. AAAA добавляйте только при доступном IPv6. Для сертификата должны быть доступны нужные ACME challenge endpoints.
-4. Подготовьте TLS Secret `ten-master-tls` в namespace `ten-master` либо установите cert-manager и готовый ClusterIssuer. Имя issuer передаётся через `TLS_CLUSTER_ISSUER`. Chart не устанавливает controller, cert-manager или issuer. Настройте перенаправление HTTP → HTTPS средствами выбранного controller.
+4. TLS настроен как в проекте `roofing`: Traefik использует entrypoint `websecure` и ACME resolver `myresolver`. Resolver должен быть настроен в самом Traefik; chart его не создаёт. Traefik автоматически выпускает и обновляет сертификат для домена, отдельный TLS Secret и cert-manager не требуются. Настройте перенаправление HTTP → HTTPS средствами Traefik.
 5. Создайте GitHub Environment `production` и добавьте secrets `KUBECONFIG` (полный YAML kubeconfig, без Base64), `GHCR_USERNAME` (пользователь GitHub) и `GHCR_PAT` (токен с `read:packages` для образа). Workflow создаёт namespace `ten-master` и Secret `ghcr-pull-secret` автоматически.
 
 ## GitHub Actions
@@ -18,7 +18,7 @@
 
 `deploy.yml` автоматически запускает деплой после успешного Release Docker Image основной ветки этого репозитория. Использует chart именно из собранного коммита и его SHA-тег образа. Также доступен ручной запуск с `image_tag` (`latest`, `sha-…` или версия). Дополнительный флаг `DEPLOY_ENABLED` не нужен.
 
-В кластере используются release и namespace `ten-master`, IngressClass `traefik`, домен `xn----8sbp0adwfdf8h.xn--p1ai` и TLS Secret `ten-master-tls`. Chart сохраняет Nginx на 8080, проверки `/healthz` и две реплики. Helm ждёт готовности и откатывает неудачное обновление. Secrets БД и S3 из roofing этому статическому сайту не нужны.
+В кластере используются release и namespace `ten-master`, IngressClass `traefik`, домен `xn----8sbp0adwfdf8h.xn--p1ai` и Traefik ACME resolver `myresolver`. Chart сохраняет Nginx на 8080, проверки `/healthz` и две реплики. Helm ждёт готовности и откатывает неудачное обновление. Secrets БД и S3 из roofing этому статическому сайту не нужны.
 
 API Kubernetes должен быть доступен GitHub runner. Kubeconfig должен иметь права на namespace, registry Secret и ресурсы Helm chart. DNS и TLS настраиваются отдельно по шагам выше. После первого деплоя проверьте `https://тэн-мастер.рф`.
 
@@ -37,7 +37,7 @@ helm upgrade --install ten-master helm/ten-master --namespace ten-master --creat
   --atomic --wait --timeout 5m
 ```
 
-Локальный пример рассчитан на Helm 3; GitHub Actions использует Helm из `azure/setup-helm@v5`, как roofing, с `--rollback-on-failure`. Для локального деплоя Secret `ghcr-pull-secret` уже должен существовать. Ресурсы, реплики и TLS настраиваются в `helm/ten-master/values.yaml`. Для локальной проверки без TLS укажите `--set ingress.tls.enabled=false`.
+Локальный пример рассчитан на Helm 3; GitHub Actions использует Helm из `azure/setup-helm@v5`, как roofing, с `--rollback-on-failure`. Для локального деплоя Secret `ghcr-pull-secret` уже должен существовать. Ресурсы, реплики и TLS настраиваются в `helm/ten-master/values.yaml`. Для проверки без TLS используйте отдельный values-файл с `ingress.tls.enabled: false` и замените `ingress.annotations` на `{traefik.ingress.kubernetes.io/router.entrypoints: web, traefik.ingress.kubernetes.io/router.tls: "false"}`; аннотацию `traefik.ingress.kubernetes.io/router.tls.certresolver` удалите через значение `null`. Для собственного сертификата укажите `ingress.tls.secretName` и удалите аннотацию certresolver через `null`.
 
 ## Метаданные сайта
 
