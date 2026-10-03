@@ -1,15 +1,15 @@
 replicaCount: 2
 image:
-  repository: "" # Required: ghcr.io/owner/repository
-  tag: "" # Required: commit SHA or immutable version
+  repository: ghcr.io/satilian/ten-landing
+  tag: latest
   digest: "" # Optional; takes precedence over tag
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 imagePullSecrets: []
 service:
   port: 80
 ingress:
   enabled: true
-  className: "" # Set to the installed IngressClass
+  className: traefik
   annotations: {}
   host: xn----8sbp0adwfdf8h.xn--p1ai
   tls:

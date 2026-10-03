@@ -1,0 +1,115 @@
+name: Deploy K3s
+
+on:
+  workflow_run:
+    workflows: ['Release Docker Image']
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Docker image tag to deploy (for manual runs). Use latest or exact SHA.'
+        required: false
+        default: 'latest'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  RELEASE_NAME: ten-master
+  NAMESPACE: ten-master
+  CHART_PATH: ./helm/ten-master
+  IMAGE_PULL_SECRET: ghcr-pull-secret
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Resolve image tag
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_TAG: ${{ inputs.image_tag || 'latest' }}
+        run: |
+          set -euo pipefail
+          echo "repository=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            echo "tag=sha-${RELEASE_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          else
+            [[ "$MANUAL_TAG" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || exit 1
+            echo "tag=$MANUAL_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v5
+
+      - name: Kubeconfig
+        env:
+          CLUSTER_CONFIG: ${{ secrets.KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          test -n "$CLUSTER_CONFIG"
+          mkdir -p ~/.kube
+          umask 077
+          printf '%s' "$CLUSTER_CONFIG" > ~/.kube/config
+
+      - name: Configure GHCR pull secret
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        run: |
+          set -euo pipefail
+          test -n "$GHCR_USERNAME"
+          test -n "$GHCR_PAT"
+          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl create secret docker-registry "$IMAGE_PULL_SECRET" \
+            --namespace "$NAMESPACE" \
+            --docker-server=ghcr.io \
+            --docker-username="$GHCR_USERNAME" \
+            --docker-password="$GHCR_PAT" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy
+        env:
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          IMAGE_TAG: ${{ steps.image.outputs.tag }}
+        run: |
+          set -euo pipefail
+          helm lint "$CHART_PATH" --strict
+          helm upgrade --install "$RELEASE_NAME" "$CHART_PATH" \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            --wait \
+            --timeout 300s \
+            --rollback-on-failure \
+            -f "$CHART_PATH/values.yaml" \
+            --set-string "imagePullSecrets[0].name=$IMAGE_PULL_SECRET" \
+            --set-string "image.repository=$IMAGE_REPOSITORY" \
+            --set-string "image.tag=$IMAGE_TAG" \
+            --set-string 'image.digest='
+
+      - name: Remove cluster credentials
+        if: always()
+        run: rm -f ~/.kube/config
