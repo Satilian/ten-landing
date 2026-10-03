@@ -286,12 +286,49 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [formData, setFormData] = useState({ name: "", phone: "", tool: "" });
   const [formSent, setFormSent] = useState(false);
+  const [formSending, setFormSending] = useState(false);
+  const [formError, setFormError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setFormSent(true);
-    setTimeout(() => setFormSent(false), 4000);
-    setFormData({ name: "", phone: "", tool: "" });
+    if (formSending) return;
+    setFormError("");
+    // Web3Forms access keys are public identifiers, safe to include in browser code.
+    const accessKey = import.meta.env.VITE_WEB3FORMS_ACCESS_KEY?.trim() || "6cffd5a9-05d8-4a04-b03d-3eec6ae2f6f7";
+    if (!accessKey) {
+      setFormError("Отправка временно недоступна. Свяжитесь с нами по телефону или через чат.");
+      return;
+    }
+    if (formData.phone.replace(/\D/g, "").length < 10) {
+      setFormError("Укажите номер телефона с кодом города или оператора.");
+      return;
+    }
+    const botcheck = new FormData(e.currentTarget).get("botcheck");
+    setFormSending(true);
+    try {
+      const response = await fetch("https://api.web3forms.com/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          access_key: accessKey,
+          subject: "ТЭН-Мастер — заявка на ремонт",
+          from_name: "ТЭН-Мастер",
+          name: formData.name.trim(),
+          phone: formData.phone.trim(),
+          message: `Запись на ремонт. Модель инструмента: ${formData.tool.trim() || "Не указана"}`,
+          botcheck: Boolean(botcheck),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.success !== true) throw new Error("Submission failed");
+      setFormSent(true);
+      setFormData({ name: "", phone: "", tool: "" });
+    } catch {
+      setFormError("Не удалось отправить заявку. Попробуйте ещё раз или свяжитесь с нами по телефону или через чат.");
+    } finally {
+      setFormSending(false);
+    }
   };
 
   return (
@@ -651,15 +688,17 @@ export default function App() {
                 </div>
 
                 {formSent ? (
-                  <div className="text-center py-10">
+                  <div className="text-center py-10" role="status">
                     <div className="w-14 h-14 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
                       <CheckIcon />
                     </div>
                     <p className="text-white font-semibold">Заявка принята!</p>
                     <p className="text-slate-400 text-sm mt-1">Мастер перезвонит вам в ближайшее время.</p>
+                    <button type="button" onClick={() => setFormSent(false)} className="mt-5 text-sm text-[#FF6B00] hover:underline">Отправить ещё заявку</button>
                   </div>
                 ) : (
                   <form onSubmit={handleSubmit} className="space-y-4">
+                    <input type="checkbox" name="botcheck" className="hidden" tabIndex={-1} aria-hidden="true" />
                     {[
                       { key: "name", label: "Ваше имя", placeholder: "Иван Петров", type: "text" },
                       { key: "phone", label: "Телефон", placeholder: "+7 (___) ___-__-__", type: "tel" },
@@ -671,8 +710,14 @@ export default function App() {
                       },
                     ].map((f) => (
                       <div key={f.key}>
-                        <label className="block text-xs text-slate-400 font-medium mb-1.5">{f.label}</label>
+                        <label htmlFor={`repair-${f.key}`} className="block text-xs text-slate-400 font-medium mb-1.5">{f.label}</label>
                         <input
+                          id={`repair-${f.key}`}
+                          name={f.key}
+                          required={f.key !== "tool"}
+                          maxLength={f.key === "phone" ? 30 : 150}
+                          autoComplete={f.key === "name" ? "name" : f.key === "phone" ? "tel" : "off"}
+                          disabled={formSending}
                           type={f.type}
                           placeholder={f.placeholder}
                           value={formData[f.key as keyof typeof formData]}
@@ -681,11 +726,13 @@ export default function App() {
                         />
                       </div>
                     ))}
+                    {formError && <p role="alert" className="text-sm text-red-300">{formError}</p>}
                     <button
                       type="submit"
-                      className="w-full py-3.5 rounded-lg bg-[#FF6B00] hover:bg-[#E05E00] text-white font-bold text-base transition-all active:scale-95 shadow-lg shadow-orange-900/30 mt-2"
+                      disabled={formSending}
+                      className="w-full py-3.5 rounded-lg bg-[#FF6B00] hover:bg-[#E05E00] text-white font-bold text-base transition-all active:scale-95 shadow-lg shadow-orange-900/30 mt-2 disabled:opacity-60 disabled:cursor-wait"
                     >
-                      Вызвать мастера / Записаться
+                      {formSending ? "Отправляем…" : "Вызвать мастера / Записаться"}
                     </button>
                     <p className="text-slate-500 text-xs text-center">
                       Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности
